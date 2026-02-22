@@ -126,11 +126,6 @@ add_action( 'init', function (): void {
     }
 
     $tokens = (int) ( $meta['tokens'] ?? 0 );
-    $injected = mfa_inject_markdown_doc_index( $markdown );
-    if ( $injected['did_inject'] ) {
-        $markdown = $injected['markdown'];
-        $tokens  += mfa_markdown_doc_index_tokens();
-    }
 
     header( 'Content-Type: text/markdown; charset=utf-8' );
     header( 'Vary: Accept' );
@@ -294,11 +289,6 @@ add_action( 'template_redirect', function (): void {
     $result   = mfa_convert_post( $post );
     $markdown = $result['markdown'];
     $tokens   = $result['tokens'];
-    $injected = mfa_inject_markdown_doc_index( $markdown );
-    if ( $injected['did_inject'] ) {
-        $markdown = $injected['markdown'];
-        $tokens  += mfa_markdown_doc_index_tokens();
-    }
 
     status_header( 200 );
     header( 'Content-Type: text/markdown; charset=utf-8' );
@@ -530,68 +520,6 @@ function mfa_regen_throttled(): bool {
 /* --------------------------------------------------------------------------
  * Response helpers
  * ---------------------------------------------------------------------- */
-
-/**
- * Get the Documentation Index block to inject into Markdown responses.
- */
-function mfa_get_markdown_doc_index_block(): string {
-    $llms_url = esc_url_raw( home_url( '/llms.txt' ) );
-    return implode( "\n", [
-        '> ## Documentation Index',
-        '> Fetch the complete website index at: ' . $llms_url,
-        '> Use this file to discover all available pages before exploring further.',
-        '',
-    ] );
-}
-
-/**
- * Estimate the token impact of injecting the Documentation Index block.
- */
-function mfa_markdown_doc_index_tokens(): int {
-    static $tokens = null;
-    if ( null !== $tokens ) {
-        return $tokens;
-    }
-
-    $plain  = str_replace( '>', '', mfa_get_markdown_doc_index_block() );
-    $words  = str_word_count( $plain );
-    $tokens = mfa_estimate_tokens( $words );
-    return $tokens;
-}
-
-/**
- * Inject the Documentation Index block right after YAML frontmatter (if present).
- *
- * This keeps the `--- ... ---` frontmatter as the first bytes of the document,
- * which many consumers expect.
- *
- * @return array{markdown: string, did_inject: bool}
- */
-function mfa_inject_markdown_doc_index( string $markdown ): array {
-    $block = mfa_get_markdown_doc_index_block();
-
-    // Avoid duplicating if something upstream already injected it.
-    if ( str_contains( substr( $markdown, 0, 500 ), '## Documentation Index' ) ) {
-        return [ 'markdown' => $markdown, 'did_inject' => false ];
-    }
-
-    // YAML frontmatter handling: insert after the closing delimiter.
-    if ( str_starts_with( $markdown, "---\n" ) ) {
-        $end = strpos( $markdown, "\n---\n", 4 );
-        if ( false !== $end ) {
-            $insert_pos = $end + strlen( "\n---\n" );
-            // If the converter already adds a blank line after frontmatter, keep it tidy.
-            if ( isset( $markdown[ $insert_pos ] ) && "\n" === $markdown[ $insert_pos ] ) {
-                $insert_pos++;
-            }
-            $out = substr( $markdown, 0, $insert_pos ) . "\n" . $block . substr( $markdown, $insert_pos );
-            return [ 'markdown' => $out, 'did_inject' => true ];
-        }
-    }
-
-    // No frontmatter — just prepend.
-    return [ 'markdown' => $block . "\n" . ltrim( $markdown ), 'did_inject' => true ];
-}
 
 /**
  * Get the preferred Markdown URL for a post, used for discovery links/headers.
